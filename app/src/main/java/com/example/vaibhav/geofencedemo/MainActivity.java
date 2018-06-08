@@ -25,23 +25,27 @@ import android.widget.TextView;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.GeofencingRequest;
+import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.MapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.tasks.OnSuccessListener;
 
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements
         GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener,
-        GoogleMap.OnMapClickListener,OnMapReadyCallback,GoogleMap.OnMarkerClickListener,LocationListener {
+        GoogleMap.OnMapClickListener, OnMapReadyCallback, GoogleMap.OnMarkerClickListener, LocationListener {
     private TextView textLat, textLong;
     private MapFragment mapFragment;
     private GoogleMap map;
@@ -49,17 +53,46 @@ public class MainActivity extends AppCompatActivity implements
     private GoogleApiClient googleApiClient;
     private Location lastLocation;
     private static final int REQ_PERMISSION = 1001;
+    private LocationCallback mLocationCallback;
+    private FusedLocationProviderClient mFusedLocationClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         createNotificationChannel();
+        createLocationRequest();
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        initGMaps();
-        createGoogleApi();
-        geofencingRequest();
+        //initGMaps();
+        //createGoogleApi();
+        //geofencingRequest();
+        mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            askPermission();
+            return;
+        } else {
+            mFusedLocationClient.getLastLocation()
+                    .addOnSuccessListener(this, new OnSuccessListener<Location>() {
+                        @Override
+                        public void onSuccess(Location location) {
+                            // Got last known location. In some rare situations this can be null.
+                            if (location != null) {
+                                Log.i(TAG, "onSuccess: " + location.getLatitude() + "," + location.getLongitude());
+                                // Logic to handle location object
+                            }
+                        }
+                    });
+        }
+
+        getLastKnownLocation();
         FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -67,22 +100,48 @@ public class MainActivity extends AppCompatActivity implements
                 makeNotification();
             }
         });
+
+        mLocationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(LocationResult locationResult) {
+                if (locationResult == null) {
+                    return;
+                }
+                for (Location location : locationResult.getLocations()) {
+                    Log.i(TAG, "onLocationResult: " + location.getLongitude() + " ," + location.getLatitude());
+                    // Update UI with location data
+                    // ...
+                }
+            }
+
+            ;
+        };
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopLocationUpdates();
+    }
+
+    private void stopLocationUpdates() {
+        mFusedLocationClient.removeLocationUpdates(mLocationCallback);
     }
 
     // Create GoogleApiClient instance
     private void createGoogleApi() {
         Log.d(TAG, "createGoogleApi()");
-        if ( googleApiClient == null ) {
-            googleApiClient = new GoogleApiClient.Builder( this )
-                    .addConnectionCallbacks( this )
-                    .addOnConnectionFailedListener( this )
-                    .addApi( LocationServices.API )
+        if (googleApiClient == null) {
+            googleApiClient = new GoogleApiClient.Builder(this)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
                     .build();
         }
     }
 
     private void makeNotification() {
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this,"channelId");
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "channelId");
         builder.setSmallIcon(R.drawable.ic_bell)
                 .setContentTitle("This is a title")
                 .setContentText("This is context text")
@@ -98,6 +157,7 @@ public class MainActivity extends AppCompatActivity implements
     private Double latitude = 40.781768;
     private Double longitude = -73.966106;
     private float radius = 100;
+
     private Geofence geofencing() {
         id = UUID.randomUUID().toString();
         return new Geofence.Builder()
@@ -154,19 +214,19 @@ public class MainActivity extends AppCompatActivity implements
     }
 
     // Initialize GoogleMaps
-    private void initGMaps(){
-        mapFragment = (MapFragment) getFragmentManager().findFragmentById(R.id.map);
+    private void initGMaps() {
+        //mapFragment = (MapFragment) getFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
     }
 
     @Override
     public void onMapClick(LatLng latLng) {
-        Log.d(TAG, "onMapClick("+latLng +")");
+        Log.d(TAG, "onMapClick(" + latLng + ")");
     }
 
     @Override
     public boolean onMarkerClick(Marker marker) {
-        Log.d(TAG, "onMarkerClickListener: " + marker.getPosition() );
+        Log.d(TAG, "onMarkerClickListener: " + marker.getPosition());
         return false;
     }
 
@@ -202,33 +262,34 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onStart() {
         super.onStart();
-        googleApiClient.connect();
+//        googleApiClient.connect();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        googleApiClient.disconnect();
+//        googleApiClient.disconnect();
     }
 
     @Override
     public void onLocationChanged(Location location) {
         lastLocation = location;
+        Log.i(TAG, "onLocationChanged: " + location.getLatitude() + " " + location.getLongitude());
         writeActualLocation(location);
     }
 
     private LocationRequest locationRequest;
     // Defined in mili seconds.
     // This number in extremely low, and should be used only for debug
-    private final int UPDATE_INTERVAL =  1000;
+    private final int UPDATE_INTERVAL = 1000;
     private final int FASTEST_INTERVAL = 900;
 
     // Get last known location
     private void getLastKnownLocation() {
         Log.d(TAG, "getLastKnownLocation()");
-        if ( checkPermission() ) {
+        if (checkPermission()) {
             lastLocation = LocationServices.FusedLocationApi.getLastLocation(googleApiClient);
-            if ( lastLocation != null ) {
+            if (lastLocation != null) {
                 Log.i(TAG, "LasKnown location. " +
                         "Long: " + lastLocation.getLongitude() +
                         " | Lat: " + lastLocation.getLatitude());
@@ -238,21 +299,53 @@ public class MainActivity extends AppCompatActivity implements
                 Log.w(TAG, "No location retrieved yet");
                 startLocationUpdates();
             }
+        } else askPermission();
+    }
+
+    boolean mRequestingLocationUpdates = true;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mRequestingLocationUpdates) {
+            startLocationUpdates();
         }
-        else askPermission();
     }
 
-    // Start location Updates
-    private void startLocationUpdates(){
-        Log.i(TAG, "startLocationUpdates()");
-        locationRequest = LocationRequest.create()
-                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
-                .setInterval(UPDATE_INTERVAL)
-                .setFastestInterval(FASTEST_INTERVAL);
-
-        if ( checkPermission() )
-            LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, locationRequest, this);
+    private void startLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        mFusedLocationClient.requestLocationUpdates(mLocationRequest,
+                mLocationCallback,
+                null /* Looper */);
     }
+    LocationRequest mLocationRequest;
+    protected void createLocationRequest() {
+        mLocationRequest = new LocationRequest();
+        mLocationRequest.setInterval(3000);
+        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+    }
+
+//    // Start location Updates
+//    private void startLocationUpdates(){
+//        Log.i(TAG, "startLocationUpdates()");
+//        locationRequest = LocationRequest.create()
+//                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+//                .setInterval(UPDATE_INTERVAL)
+//                .setFastestInterval(FASTEST_INTERVAL);
+//
+//        if ( checkPermission() )
+//            LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, locationRequest, this);
+//    }
 
     // Write location coordinates on UI
     private void writeActualLocation(Location location) {
